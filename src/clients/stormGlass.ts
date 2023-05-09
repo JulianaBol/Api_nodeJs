@@ -1,5 +1,6 @@
-import { AxiosStatic } from 'axios';
+import * as HTTPUtil from '@src/utils/request';
 import InternalError from '@src/utils/errors/internalError';
+import config, { IConfig } from 'config';
 
 export interface StormGlassPointSource {
     [key: string]: number
@@ -42,31 +43,50 @@ export class ClientRequestError extends InternalError {
   }
 }
 
+export class StormGlassResponseError extends InternalError {
+  constructor(message: string) {
+    const internalMessage =
+    'Unexpected error returned by the StormGlass service';
+    super(`${internalMessage}: ${message}`);
+  }
+}
+
+const stormglassResourceConfig: IConfig = config.get(
+  'App.resources.StormGlass'
+);
+
 export default class StormGlass 
 {
     readonly stormGlassAPIParams = 'swellDirection,swellHeight,swellPeriod,waveDirection,waveHeight,windDirection,windSpeed';
     readonly stormGlassAPISource = 'noaa';
     
-    constructor(protected request: AxiosStatic) {}
+    constructor(protected request= new HTTPUtil.Request()) {}
 
     public async fetchPoints(lat: number, lng: number): Promise<ForecastPoint[]> 
     {
       try
       {
         const response = await this.request.get<StormGlassForecastResponse>(
-            `https://api.stormglass.io/v2/weather/point?params=${this.stormGlassAPIParams}&source=${this.stormGlassAPISource}&end=1592113802&lat=${lat}&lng=${lng}`,
-            {
-                headers:
-                {
-                    Authorization: 'fake-token',
-                },
-            }
+          `${stormglassResourceConfig.get(
+            'apiUrl'
+          )}/weather/point?lat=${lat}&lng=${lng}&params=${
+            this.stormGlassAPIParams
+          }&source=${this.stormGlassAPISource}`,
+          {
+            headers: {
+              Authorization: stormglassResourceConfig.get('apiToken'),
+            },
+          }
         );
         return this.normalizeResponse((response).data);
       }
       catch(err:any)
       {
-        throw new ClientRequestError(err.message)
+        if(HTTPUtil.Request.isRequestError(err))
+        {
+          throw new StormGlassResponseError(`Error: ${JSON.stringify(err.response.data)} Code: ${err.response.status}`);
+        }
+        throw new ClientRequestError(err.message);
       }
     }
 
